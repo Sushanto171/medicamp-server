@@ -47,6 +47,20 @@ const run = async () => {
       }
     });
 
+    // get users
+    app.get("/users", async (req, res) => {
+      try {
+        const result = await usersCollection.find({}).toArray();
+        res.status(200).json({
+          success: true,
+          message: "All users data fetching success",
+          data: result,
+        });
+      } catch (error) {
+        res.status(500).json({ message: "internal server error" });
+      }
+    });
+
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Send a ping to confirm a successful connection
