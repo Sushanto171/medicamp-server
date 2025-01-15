@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const app = express();
+const jsw = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 const cors = require("cors");
 const port = process.env.PROT || 5000;
@@ -22,6 +23,47 @@ const run = async () => {
   try {
     // create db collection
     const usersCollection = client.db("MediCamp").collection("users");
+    const campsCollection = client.db("MediCamp").collection("camps");
+
+    // generate token
+    app.post("/jwt", async (req, res) => {
+      try {
+        const secretKey = process.env.JWT_SECRET_KEY;
+        const user = req.body;
+        const token = jsw.sign(user, secretKey, { expiresIn: "30min" });
+
+        res
+          .status(201)
+          .json({ message: "Successfully JWT Token generated ", token });
+      } catch (error) {
+        res.status(500).json({ message: "internal server error" });
+      }
+    });
+
+    // camps related apis
+    app.get("/camps", async (req, res) => {
+      try {
+        const { home } = req.query;
+        let result;
+        // if home then aggregate
+        if (home) {
+          result = await campsCollection
+            .aggregate([{ $sort: { participantCount: -1 } }, { $limit: 6 }])
+            .toArray();
+        } else {
+          result = await campsCollection.find({}).toArray();
+        }
+
+        res.status(200).json({
+          success: true,
+          message: "Camps data fetching success",
+          data: result,
+        });
+      } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: "internal sever error" });
+      }
+    });
 
     // users related api
     app.post("/users/:email", async (req, res) => {
