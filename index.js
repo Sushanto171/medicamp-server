@@ -1,8 +1,8 @@
 require("dotenv").config();
 const express = require("express");
 const app = express();
-const jsw = require("jsonwebtoken");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const jwt = require("jsonwebtoken");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const port = process.env.PROT || 5000;
 
@@ -19,18 +19,47 @@ const client = new MongoClient(uri, {
 app.use(express.json());
 app.use(cors());
 
+const verifyToken = (req, res, next) => {
+  try {
+    const data = req.headers?.authorization;
+    const [Bearer, token] = data.split(" ");
+    if (!token) {
+      res
+        .status(401)
+        .send({ message: "Unauthorized: Invalid or expired token" });
+      return;
+    }
+    // verify token
+    jwt.verify(token, process.env.JWT_SECRET_KEY, (error, decode) => {
+      if (error) {
+        res
+          .status(401)
+          .send({ message: "Unauthorized: Invalid or expired token" });
+        return;
+      }
+      req.user = decode.email;
+      next();
+    });
+  } catch (error) {
+    res.status(500).json({ message: "internal server error", error });
+  }
+};
+
 const run = async () => {
   try {
     // create db collection
     const usersCollection = client.db("MediCamp").collection("users");
     const campsCollection = client.db("MediCamp").collection("camps");
+    const participantsCollection = client
+      .db("MediCamp")
+      .collection("participants");
 
     // generate token
     app.post("/jwt", async (req, res) => {
       try {
         const secretKey = process.env.JWT_SECRET_KEY;
         const user = req.body;
-        const token = jsw.sign(user, secretKey, { expiresIn: "30min" });
+        const token = jwt.sign(user, secretKey, { expiresIn: "30min" });
 
         res
           .status(201)
@@ -40,18 +69,90 @@ const run = async () => {
       }
     });
 
+    //participant related apis
+    app.post("/participants/:id", verifyToken, async (req, res) => {
+      try {
+        const participantData = req.body;
+
+        const id = req.params.id;
+        const result = await participantsCollection.insertOne(participantData);
+        // update camp participant filed
+        const camp = await campsCollection.findOne({ _id: new ObjectId(id) });
+        let modify;
+        if (camp) {
+          const update = { $inc: { participantCount: 1 } };
+          modify = await campsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            update
+          );
+        }
+        res.status(200).json({
+          success: true,
+          message: "Successfully participated in the camp",
+          data: result,
+          isModify: modify,
+        });
+      } catch (error) {
+        res.status(500).json({ message: "internal server error", error });
+      }
+    });
+
+    // get camp by id
+    app.get("/camp/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await campsCollection.findOne({ _id: new ObjectId(id) });
+        res.status(200).json({
+          success: true,
+          message: "Camp fetching success",
+          data: result,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Internal server error", error });
+      }
+    });
+
     // camps related apis
     app.get("/camps", async (req, res) => {
       try {
-        const { home } = req.query;
+        const { home, sort, search } = req.query;
+        let query = {};
+        // search
+        if (search && search !== "null") {
+          query = {
+            $or: [
+              { campName: { $regex: search.trim(), $options: "i" } },
+              {
+                healthcareProfessional: {
+                  $regex: search.trim(),
+                  $options: "i",
+                },
+              },
+              { location: { $regex: search.trim(), $options: "i" } },
+              { date: { $regex: search.trim(), $options: "i" } },
+            ],
+          };
+        }
+
         let result;
         // if home then aggregate
-        if (home) {
+        if (home === "true") {
           result = await campsCollection
             .aggregate([{ $sort: { participantCount: -1 } }, { $limit: 6 }])
             .toArray();
         } else {
-          result = await campsCollection.find({}).toArray();
+          // conditionally set sortValue
+          let sortValue = {};
+          if (sort !== "Sort") {
+            const key =
+              sort === "Camp Fees"
+                ? "campFees"
+                : sort === "Most Registered"
+                ? "participantCount"
+                : "campName";
+            sortValue[key] = sort === "A-Z Order" ? 1 : -1;
+          }
+          result = await campsCollection.find(query).sort(sortValue).toArray();
         }
 
         res.status(200).json({
@@ -104,9 +205,9 @@ const run = async () => {
     });
 
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
