@@ -22,7 +22,7 @@ app.use(cors());
 const verifyToken = (req, res, next) => {
   try {
     const data = req.headers?.authorization;
-    const [Bearer, token] = data.split(" ");
+    const [Bearer, token] = data?.split(" ");
     if (!token) {
       res
         .status(401)
@@ -167,6 +167,24 @@ const run = async () => {
     });
 
     // users related api
+    app.get("/admin/:email", verifyToken, async (req, res) => {
+      try {
+        const userEmail = req.user;
+        const email = req.params.email;
+
+        if (userEmail !== email) {
+          return res
+            .status(403)
+            .json({ message: "Forbidden: unauthorized access" });
+        }
+        const result = await usersCollection.findOne({ email });
+        const isAdmin = result?.role === "admin" ? true : false;
+        res.status(200).json({ message: "User verify success", data: isAdmin });
+      } catch (error) {
+        res.status(500).json({ message: "internal server error", error });
+      }
+    });
+
     app.post("/users/:email", async (req, res) => {
       try {
         const email = req.params.email;
@@ -201,6 +219,42 @@ const run = async () => {
         });
       } catch (error) {
         res.status(500).json({ message: "internal server error" });
+      }
+    });
+
+    // get user by id
+    app.get("/user/:email", verifyToken, async (req, res) => {
+      try {
+        const userEmail = req.user;
+        const email = req.params.email;
+        if (userEmail !== email) {
+          return res
+            .status(403)
+            .json({ message: "Forbidden: unauthorized access" });
+        }
+
+        const result = await usersCollection.findOne({ email });
+        res
+          .status(200)
+          .json({ message: "fetching success", success: true, data: result });
+      } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: "internal server error", error });
+      }
+    });
+
+    // update user by id
+    app.patch("/user/:email", verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const userData = req.body;
+        const update = { $set: userData };
+        const result = await usersCollection.updateOne({ email }, update);
+        res
+          .status(200)
+          .json({ message: "updated success", success: true, data: result });
+      } catch (error) {
+        res.status(500).json({ message: "internal server error", error });
       }
     });
 
