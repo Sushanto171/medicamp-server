@@ -115,6 +115,55 @@ const run = async () => {
       }
     });
 
+    app.get("/participants", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const result = await participantsCollection
+          .aggregate([
+            {
+              $addFields: {
+                campID: { $toObjectId: "$campID" },
+              },
+            },
+            {
+              $lookup: {
+                from: "camps",
+                localField: "campID",
+                foreignField: "_id",
+                as: "campsDetails",
+              },
+            },
+            {
+              $unwind: {
+                path: "$campsDetails",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                participantName: 1,
+                participantEmail: 1,
+                participantPhoto: 1,
+                paymentStatus: 1,
+                confirmationStatus: 1,
+                campID: "$campsDetails._id",
+                campName: "$campsDetails.campName",
+                campFees: "$campsDetails.campFees",
+              },
+            },
+          ])
+          .toArray();
+        res.status(200).json({
+          success: true,
+          message: "Successfully fetched all participants data",
+          data: result,
+        });
+      } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: "internal server error", error });
+      }
+    });
+
     // camp post
     app.post("/camps", verifyToken, verifyAdmin, async (req, res) => {
       try {
@@ -200,22 +249,48 @@ const run = async () => {
     });
 
     // update camp by id
-    app.patch("/camp/:id", verifyToken, verifyAdmin, async (req, res) => {
-      try {
-        const id = req.params.id;
-        const updateCamp = req.body;
-        const result = await campsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: updateCamp }
-        );
-        console.log(result);
-        res
-          .status(200)
-          .json({ message: "Successfully updated camp", data: result });
-      } catch (error) {
-        res.status(500).json({ message: "Internal server error", error });
+    app.patch(
+      "/update-camp/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const id = req.params.id;
+          const updateCamp = req.body;
+          const result = await campsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updateCamp }
+          );
+
+          res
+            .status(200)
+            .json({ message: "Successfully updated camp", data: result });
+        } catch (error) {
+          res.status(500).json({ message: "Internal server error", error });
+        }
       }
-    });
+    );
+
+    // delete camp by id
+    app.delete(
+      "/delete-camp/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const id = req.params.id;
+          const result = await campsCollection.deleteOne({
+            _id: new ObjectId(id),
+          });
+          res.status(200).json({
+            message: "Camp has been successfully deleted",
+            data: result,
+          });
+        } catch (error) {
+          res.status(500).json({ message: "Internal server error" });
+        }
+      }
+    );
 
     // users related api
     app.get("/admin/:email", verifyToken, async (req, res) => {
