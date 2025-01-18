@@ -54,6 +54,24 @@ const run = async () => {
       .db("MediCamp")
       .collection("participants");
 
+    // verify admin
+    const verifyAdmin = async (req, res, next) => {
+      try {
+        const userEmail = req.user;
+        const result = await usersCollection.findOne({ email: userEmail });
+
+        const isAdmin = result?.role === "admin";
+        if (!isAdmin) {
+          return res
+            .status(403)
+            .json({ message: "Forbidden: unauthorized access" });
+        }
+        next();
+      } catch (error) {
+        res.status(500).json({ message: "internal server error", error });
+      }
+    };
+
     // generate token
     app.post("/jwt", async (req, res) => {
       try {
@@ -97,6 +115,21 @@ const run = async () => {
       }
     });
 
+    // camp post
+    app.post("/camps", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const campData = req.body;
+        const result = await campsCollection.insertOne(campData);
+        res.status(201).json({
+          success: true,
+          message: "Successfully created camp ",
+          data: result,
+        });
+      } catch (error) {
+        res.status(500).json({ message: "internal server error", error });
+      }
+    });
+
     // get camp by id
     app.get("/camp/:id", async (req, res) => {
       try {
@@ -118,7 +151,7 @@ const run = async () => {
         const { home, sort, search } = req.query;
         let query = {};
         // search
-        if (search && search !== "null") {
+        if (search && search !== "null" && search !== "undefined") {
           query = {
             $or: [
               { campName: { $regex: search.trim(), $options: "i" } },
@@ -143,7 +176,8 @@ const run = async () => {
         } else {
           // conditionally set sortValue
           let sortValue = {};
-          if (sort !== "Sort") {
+          if (sort === "Sort" || sort !== "undefined") {
+            // console.log(sort);
             const key =
               sort === "Camp Fees"
                 ? "campFees"
@@ -154,7 +188,6 @@ const run = async () => {
           }
           result = await campsCollection.find(query).sort(sortValue).toArray();
         }
-
         res.status(200).json({
           success: true,
           message: "Camps data fetching success",
@@ -163,6 +196,24 @@ const run = async () => {
       } catch (error) {
         console.log(error);
         res.status(500).json({ message: "internal sever error" });
+      }
+    });
+
+    // update camp by id
+    app.patch("/camp/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updateCamp = req.body;
+        const result = await campsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateCamp }
+        );
+        console.log(result);
+        res
+          .status(200)
+          .json({ message: "Successfully updated camp", data: result });
+      } catch (error) {
+        res.status(500).json({ message: "Internal server error", error });
       }
     });
 
@@ -234,6 +285,7 @@ const run = async () => {
         }
 
         const result = await usersCollection.findOne({ email });
+
         res
           .status(200)
           .json({ message: "fetching success", success: true, data: result });
