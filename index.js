@@ -77,7 +77,7 @@ const run = async () => {
       try {
         const secretKey = process.env.JWT_SECRET_KEY;
         const user = req.body;
-        const token = jwt.sign(user, secretKey, { expiresIn: "30min" });
+        const token = jwt.sign(user, secretKey, { expiresIn: "1hr" });
 
         res
           .status(201)
@@ -115,6 +115,7 @@ const run = async () => {
       }
     });
 
+    // get participant data
     app.get("/participants", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const result = await participantsCollection
@@ -163,6 +164,60 @@ const run = async () => {
         res.status(500).json({ message: "internal server error", error });
       }
     });
+
+    // update confirmation status
+    app.patch(
+      "/confirmation-participant/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          console.log("hit");
+          const id = req.params.id;
+          const changeData = req.body;
+          const result = await participantsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: changeData }
+          );
+          res
+            .status(200)
+            .json({ message: "Status change successfully", data: result });
+        } catch (error) {
+          res.status(500).json({ message: "internal server error", error });
+        }
+      }
+    );
+
+    //participant delete by id and update camp participantCount value(-1)
+    app.delete(
+      "/delete-participant/:id/:campID",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const id = req.params.id;
+          const campID = req.params.campID;
+          // 1. delete participant
+          const result = await participantsCollection.deleteOne({
+            _id: new ObjectId(id),
+          });
+          //2. update camp participantCount field
+          let update;
+          if (result) {
+            update = await campsCollection.updateOne(
+              { _id: new ObjectId(campID) },
+              { $inc: { participantCount: -1 } }
+            );
+          }
+          res.status(200).json({
+            message: "Successfully canceled Participant registration",
+            data: { update, result },
+          });
+        } catch (error) {
+          res.status(500).json({ message: "internal server error", error });
+        }
+      }
+    );
 
     // camp post
     app.post("/camps", verifyToken, verifyAdmin, async (req, res) => {
