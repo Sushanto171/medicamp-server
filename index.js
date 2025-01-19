@@ -55,6 +55,7 @@ const run = async () => {
     const participantsCollection = client
       .db("MediCamp")
       .collection("participants");
+    const feedbacksCollection = client.db("MediCamp").collection("feedbacks");
 
     // create confirm intent
     app.post("/create-confirm-intent", verifyToken, async (req, res) => {
@@ -123,6 +124,18 @@ const run = async () => {
       }
     });
 
+    // feedback related apis
+    app.post("/feedback", verifyToken, async (req, res) => {
+      try {
+        const data = req.body;
+        const result = await feedbacksCollection.insertOne(data);
+        res.status(201).json({
+          message: "Your feedback has been successfully saved",
+          data: result,
+        });
+      } catch (error) {}
+    });
+
     // payments relate apis
     app.post("/payments/:id", verifyToken, async (req, res) => {
       try {
@@ -138,6 +151,52 @@ const run = async () => {
           data: { result, updateStatus },
         });
       } catch (error) {
+        res
+          .status(500)
+          .json({ message: "internal server error", error: error.message });
+      }
+    });
+
+    // get payment history by email
+    app.get("/payments-history/:email", verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const result = await paymentsCollection
+          .aggregate([
+            {
+              $match: { participantEmail: email },
+            },
+            {
+              $addFields: {
+                participantID: { $toObjectId: "$participantID" },
+              },
+            },
+            {
+              $lookup: {
+                from: "participants",
+                localField: "participantID",
+                foreignField: "_id",
+                as: "paymentDetails",
+              },
+            },
+            {
+              $unwind: { path: "$paymentDetails" },
+            },
+            {
+              $project: {
+                id: 1,
+                campName: 1,
+                campFees: 1,
+                transactionID: 1,
+                paymentStatus: "$paymentDetails.paymentStatus",
+                confirmationStatus: "$paymentDetails.confirmationStatus",
+              },
+            },
+          ])
+          .toArray();
+        res.status(200).json({ data: result });
+      } catch (error) {
+        console.log(error);
         res
           .status(500)
           .json({ message: "internal server error", error: error.message });
