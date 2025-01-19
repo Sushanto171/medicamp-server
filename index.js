@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const app = express();
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
@@ -53,6 +54,40 @@ const run = async () => {
     const participantsCollection = client
       .db("MediCamp")
       .collection("participants");
+
+    // create confirm intent
+    app.post("/create-confirm-intent", verifyToken, async (req, res) => {
+      try {
+        const { fees, name, email } = req.body;
+        if (!fees) {
+          return res.status(400).json({ message: "Fees amount is required" });
+        }
+        if (!name || !email) {
+          return res
+            .status(400)
+            .json({ message: "Name and email are required" });
+        }
+
+        const amount = parseInt(fees) * 100;
+        const intent = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: "usd",
+          receipt_email: email,
+          metadata: {
+            name: name,
+            email: email,
+            fees: fees.toString(),
+          },
+          payment_method_types: ["card"],
+        });
+
+        res.status(200).json({ clientSecret: intent.client_secret });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "internal server error", error: error.message });
+      }
+    });
 
     // verify admin
     const verifyAdmin = async (req, res, next) => {
@@ -165,6 +200,55 @@ const run = async () => {
       }
     });
 
+    // get participant data by email
+    app.get("/participant/:email", verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const result = await participantsCollection
+          .aggregate([
+            {
+              $match: { participantEmail: email },
+            },
+            {
+              $addFields: { campID: { $toObjectId: "$campID" } },
+            },
+            {
+              $lookup: {
+                from: "camps",
+                localField: "campID",
+                foreignField: "_id",
+                as: "campsDetails",
+              },
+            },
+            {
+              $unwind: {
+                path: "$campsDetails",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                participantName: 1,
+                participantEmail: 1,
+                confirmationStatus: 1,
+                paymentStatus: 1,
+                campName: "$campsDetails.campName",
+                campFees: "$campsDetails.campFees",
+                campID: "$campsDetails._id",
+              },
+            },
+          ])
+          .toArray();
+
+        res
+          .status(200)
+          .json({ message: "Participant data fetching success", data: result });
+      } catch (error) {
+        res.status(500).json({ message: "internal server error", error });
+      }
+    });
+
     // update confirmation status
     app.patch(
       "/confirmation-participant/:id",
@@ -172,7 +256,6 @@ const run = async () => {
       verifyAdmin,
       async (req, res) => {
         try {
-          console.log("hit");
           const id = req.params.id;
           const changeData = req.body;
           const result = await participantsCollection.updateOne(
