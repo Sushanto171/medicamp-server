@@ -160,7 +160,14 @@ const run = async () => {
     // get payment history by email
     app.get("/payments-history/:email", verifyToken, async (req, res) => {
       try {
+        const userEmail = req.user;
         const email = req.params.email;
+
+        if (userEmail !== email) {
+          return res
+            .status(403)
+            .json({ message: "Forbidden: unauthorized access" });
+        }
         const result = await paymentsCollection
           .aggregate([
             {
@@ -284,7 +291,14 @@ const run = async () => {
     // get participant data by email
     app.get("/participant/:email", verifyToken, async (req, res) => {
       try {
+        const userEmail = req.user;
         const email = req.params.email;
+
+        if (userEmail !== email) {
+          return res
+            .status(403)
+            .json({ message: "Forbidden: unauthorized access" });
+        }
         const result = await participantsCollection
           .aggregate([
             {
@@ -394,6 +408,65 @@ const run = async () => {
         });
       } catch (error) {
         res.status(500).json({ message: "internal server error", error });
+      }
+    });
+
+    // analytics
+    app.get("/analytics-overview", verifyToken, async (req, res) => {
+      try {
+        const result = await Promise.all([
+          campsCollection
+            .aggregate([
+              {
+                $group: {
+                  _id: null,
+                  totalParticipants: { $sum: "$participantCount" },
+                },
+              },
+            ])
+            .toArray(),
+          paymentsCollection
+            .aggregate([
+              {
+                $group: {
+                  _id: null,
+                  revenue: { $sum: "$campFees" },
+                },
+              },
+            ])
+            .toArray(),
+          {
+            totalCamps: await campsCollection.estimatedDocumentCount(),
+          },
+          campsCollection
+            .aggregate([
+              {
+                $project: {
+                  _id: 1,
+                  campName: 1,
+                  campFees: 1,
+                  participantCount: 1,
+                },
+              },
+            ])
+            .toArray(),
+        ]);
+
+        const totalParticipants = result[0][0].totalParticipants
+          ? result[0][0].totalParticipants
+          : 0;
+        const revenue = result[1][0].revenue ? result[1][0].revenue : 0;
+        const totalCamps = result[2].totalCamps ? result[2].totalCamps : 0;
+        const chartData = result[3] ? result[3] : [];
+
+        res
+          .status(200)
+          .json({ revenue, totalParticipants, totalCamps, chartData });
+      } catch (error) {
+        console.log(error);
+        res
+          .status(500)
+          .json({ message: "internal server error", error: error.message });
       }
     });
 
@@ -591,7 +664,14 @@ const run = async () => {
     // update user by id
     app.patch("/user/:email", verifyToken, async (req, res) => {
       try {
+        const userEmail = req.user;
         const email = req.params.email;
+
+        if (userEmail !== email) {
+          return res
+            .status(403)
+            .json({ message: "Forbidden: unauthorized access" });
+        }
         const userData = req.body;
         const update = { $set: userData };
         const result = await usersCollection.updateOne({ email }, update);
