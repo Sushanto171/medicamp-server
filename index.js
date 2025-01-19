@@ -50,6 +50,7 @@ const run = async () => {
   try {
     // create db collection
     const usersCollection = client.db("MediCamp").collection("users");
+    const paymentsCollection = client.db("MediCamp").collection("payments");
     const campsCollection = client.db("MediCamp").collection("camps");
     const participantsCollection = client
       .db("MediCamp")
@@ -119,6 +120,27 @@ const run = async () => {
           .json({ message: "Successfully JWT Token generated ", token });
       } catch (error) {
         res.status(500).json({ message: "internal server error" });
+      }
+    });
+
+    // payments relate apis
+    app.post("/payments/:id", verifyToken, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const paymentData = req.body;
+        const result = await paymentsCollection.insertOne(paymentData);
+        const updateStatus = await participantsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { paymentStatus: true } }
+        );
+        res.status(200).json({
+          message: "Payment Successfully",
+          data: { result, updateStatus },
+        });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "internal server error", error: error.message });
       }
     });
 
@@ -260,7 +282,7 @@ const run = async () => {
           const changeData = req.body;
           const result = await participantsCollection.updateOne(
             { _id: new ObjectId(id) },
-            { $set: changeData }
+            { $set: { confirmationStatus: true } }
           );
           res
             .status(200)
@@ -275,7 +297,6 @@ const run = async () => {
     app.delete(
       "/delete-participant/:id/:campID",
       verifyToken,
-      verifyAdmin,
       async (req, res) => {
         try {
           const id = req.params.id;
