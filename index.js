@@ -5,6 +5,8 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
+const WebSocket = require("ws");
+const wss = new WebSocket.Server({ port: 8080 });
 const port = process.env.PROT || 5000;
 
 const uri = process.env.DB_USER;
@@ -45,6 +47,22 @@ const verifyToken = (req, res, next) => {
     res.status(500).json({ message: "internal server error", error });
   }
 };
+
+// websocket
+wss.on("connection", (ws) => {
+  console.log("New Client connected");
+
+  // handle incoming message
+  ws.on("message", (message) => {
+    // console.log(`Received:${message}`);
+    ws.send(`Sever received:${message}`);
+  });
+
+  // handle client disconnect
+  ws.on("close", () => {
+    // console.log("Client disconnected");
+  });
+});
 
 const run = async () => {
   try {
@@ -136,6 +154,34 @@ const run = async () => {
       } catch (error) {}
     });
 
+    // get feedbackById
+    app.get("/feedback/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await feedbacksCollection.find({ campID: id }).toArray();
+        res.status(200).json({ message: "Feedback by id", data: result });
+      } catch (error) {
+        console.log(error);
+        res
+          .status(500)
+          .json({ message: "internal server error", error: error.message });
+      }
+    });
+
+    //get feedbacks
+    app.get("/feedbacks", async (req, res) => {
+      try {
+        const result = await feedbacksCollection.find({}).toArray();
+        res
+          .status(200)
+          .json({ message: "feedbacks fetching success", data: result });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Internal server error", error: error.message });
+      }
+    });
+
     // payments relate apis
     app.post("/payments/:id", verifyToken, async (req, res) => {
       try {
@@ -203,7 +249,6 @@ const run = async () => {
           .toArray();
         res.status(200).json({ data: result });
       } catch (error) {
-        console.log(error);
         res
           .status(500)
           .json({ message: "internal server error", error: error.message });
@@ -283,7 +328,6 @@ const run = async () => {
           data: result,
         });
       } catch (error) {
-        console.log(error);
         res.status(500).json({ message: "internal server error", error });
       }
     });
@@ -435,6 +479,7 @@ const run = async () => {
               },
             ])
             .toArray(),
+
           {
             totalCamps: await campsCollection.estimatedDocumentCount(),
           },
@@ -448,22 +493,42 @@ const run = async () => {
                   participantCount: 1,
                 },
               },
+              {
+                $addFields: { id: { $toString: "$_id" } },
+              },
+              {
+                $lookup: {
+                  from: "feedbacks",
+                  localField: "id",
+                  foreignField: "campID",
+                  as: "feedbacks",
+                },
+              },
+              {
+                $addFields: { totalFeedbacks: { $size: "$feedbacks" } },
+              },
+              {
+                $project: {
+                  campName: 1,
+                  campFees: 1,
+                  participantCount: 1,
+                  totalFeedbacks: 1,
+                },
+              },
             ])
             .toArray(),
         ]);
 
-        const totalParticipants = result[0][0].totalParticipants
-          ? result[0][0].totalParticipants
+        const totalParticipants = result[0][0]?.totalParticipants
+          ? result[0][0]?.totalParticipants
           : 0;
-        const revenue = result[1][0].revenue ? result[1][0].revenue : 0;
-        const totalCamps = result[2].totalCamps ? result[2].totalCamps : 0;
+        const revenue = result[1][0]?.revenue ? result[1][0]?.revenue : 0;
+        const totalCamps = result[2]?.totalCamps ? result[2]?.totalCamps : 0;
         const chartData = result[3] ? result[3] : [];
-
         res
           .status(200)
           .json({ revenue, totalParticipants, totalCamps, chartData });
       } catch (error) {
-        console.log(error);
         res
           .status(500)
           .json({ message: "internal server error", error: error.message });
@@ -534,7 +599,6 @@ const run = async () => {
           data: result,
         });
       } catch (error) {
-        console.log(error);
         res.status(500).json({ message: "internal sever error" });
       }
     });
@@ -656,7 +720,6 @@ const run = async () => {
           .status(200)
           .json({ message: "fetching success", success: true, data: result });
       } catch (error) {
-        console.log(error);
         res.status(500).json({ message: "internal server error", error });
       }
     });
