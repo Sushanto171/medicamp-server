@@ -5,8 +5,8 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
-const WebSocket = require("ws");
-const wss = new WebSocket.Server({ port: 8080 });
+// const WebSocket = require("ws");
+// const wss = new WebSocket.Server({ port: 8080 });
 const port = process.env.PROT || 5000;
 
 const uri = process.env.DB_USER;
@@ -20,7 +20,16 @@ const client = new MongoClient(uri, {
 });
 // middleware
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://medicamp-91966.web.app",
+      "https://medicamp-91966.firebaseapp.com",
+    ],
+    credentials: true,
+  })
+);
 
 const verifyToken = (req, res, next) => {
   try {
@@ -48,21 +57,21 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-// websocket
-wss.on("connection", (ws) => {
-  console.log("New Client connected");
+// // websocket
+// wss.on("connection", (ws) => {
+//   console.log("New Client connected");
 
-  // handle incoming message
-  ws.on("message", (message) => {
-    // console.log(`Received:${message}`);
-    ws.send(`Sever received:${message}`);
-  });
+//   // handle incoming message
+//   ws.on("message", (message) => {
+//     // console.log(`Received:${message}`);
+//     ws.send(`Sever received:${message}`);
+//   });
 
-  // handle client disconnect
-  ws.on("close", () => {
-    // console.log("Client disconnected");
-  });
-});
+//   // handle client disconnect
+//   ws.on("close", () => {
+//     // console.log("Client disconnected");
+//   });
+// });
 
 const run = async () => {
   try {
@@ -214,6 +223,8 @@ const run = async () => {
             .status(403)
             .json({ message: "Forbidden: unauthorized access" });
         }
+
+        const { search = "", page = 0 } = req.query;
         const result = await paymentsCollection
           .aggregate([
             {
@@ -245,9 +256,25 @@ const run = async () => {
                 confirmationStatus: "$paymentDetails.confirmationStatus",
               },
             },
+            {
+              $match: {
+                campName: { $regex: search, $options: "i" },
+              },
+            },
+            {
+              $skip: page * 10,
+            },
+            {
+              $limit: 10,
+            },
           ])
           .toArray();
-        res.status(200).json({ data: result });
+
+        const totalData = (
+          await paymentsCollection.find({ participantEmail: email }).toArray()
+        ).length;
+
+        res.status(200).json({ data: result, totalData });
       } catch (error) {
         res
           .status(500)
@@ -286,46 +313,66 @@ const run = async () => {
     // get participant data
     app.get("/participants", verifyToken, verifyAdmin, async (req, res) => {
       try {
+        const { search, page } = req.query;
+        const totalData = await participantsCollection.estimatedDocumentCount();
+        const pipeline = [
+          {
+            $addFields: {
+              campID: { $toObjectId: "$campID" },
+            },
+          },
+          {
+            $lookup: {
+              from: "camps",
+              localField: "campID",
+              foreignField: "_id",
+              as: "campsDetails",
+            },
+          },
+          {
+            $unwind: {
+              path: "$campsDetails",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              participantName: 1,
+              participantEmail: 1,
+              participantPhoto: 1,
+              paymentStatus: 1,
+              confirmationStatus: 1,
+              campID: "$campsDetails._id",
+              campName: "$campsDetails.campName",
+              campFees: "$campsDetails.campFees",
+            },
+          },
+          {
+            $skip: page * 10,
+          },
+          {
+            $limit: 10,
+          },
+        ];
+        if (search) {
+          pipeline.push({
+            $match: {
+              $or: [
+                { participantName: { $regex: search, $options: "i" } },
+                { campName: { $regex: search, $options: "i" } },
+              ],
+            },
+          });
+        }
         const result = await participantsCollection
-          .aggregate([
-            {
-              $addFields: {
-                campID: { $toObjectId: "$campID" },
-              },
-            },
-            {
-              $lookup: {
-                from: "camps",
-                localField: "campID",
-                foreignField: "_id",
-                as: "campsDetails",
-              },
-            },
-            {
-              $unwind: {
-                path: "$campsDetails",
-                preserveNullAndEmptyArrays: true,
-              },
-            },
-            {
-              $project: {
-                _id: 1,
-                participantName: 1,
-                participantEmail: 1,
-                participantPhoto: 1,
-                paymentStatus: 1,
-                confirmationStatus: 1,
-                campID: "$campsDetails._id",
-                campName: "$campsDetails.campName",
-                campFees: "$campsDetails.campFees",
-              },
-            },
-          ])
+          .aggregate(pipeline)
           .toArray();
         res.status(200).json({
           success: true,
           message: "Successfully fetched all participants data",
           data: result,
+          totalData,
         });
       } catch (error) {
         res.status(500).json({ message: "internal server error", error });
@@ -337,16 +384,24 @@ const run = async () => {
       try {
         const userEmail = req.user;
         const email = req.params.email;
-
+        const totalData = (
+          await participantsCollection
+            .find({ participantEmail: email })
+            .toArray()
+        ).length;
         if (userEmail !== email) {
           return res
             .status(403)
             .json({ message: "Forbidden: unauthorized access" });
         }
+        const { search = "", page = 0 } = req.query;
+        const skip = parseInt(page) * 10;
         const result = await participantsCollection
           .aggregate([
             {
-              $match: { participantEmail: email },
+              $match: {
+                participantEmail: email,
+              },
             },
             {
               $addFields: { campID: { $toObjectId: "$campID" } },
@@ -377,12 +432,26 @@ const run = async () => {
                 campID: "$campsDetails._id",
               },
             },
+            {
+              $match: {
+                ...(search && {
+                  campName: { $regex: search, $options: "i" },
+                }),
+              },
+            },
+            {
+              $skip: skip,
+            },
+            {
+              $limit: 10,
+            },
           ])
           .toArray();
-
-        res
-          .status(200)
-          .json({ message: "Participant data fetching success", data: result });
+        res.status(200).json({
+          message: "Participant data fetching success",
+          data: result,
+          totalData,
+        });
       } catch (error) {
         res.status(500).json({ message: "internal server error", error });
       }
@@ -553,7 +622,7 @@ const run = async () => {
     // camps related apis
     app.get("/camps", async (req, res) => {
       try {
-        const { home, sort, search } = req.query;
+        const { home, sort, search, page } = req.query;
         let query = {};
         // search
         if (search && search !== "null" && search !== "undefined") {
@@ -571,6 +640,8 @@ const run = async () => {
             ],
           };
         }
+
+        const totalData = await campsCollection.estimatedDocumentCount();
 
         let result;
         // if home then aggregate
@@ -591,12 +662,18 @@ const run = async () => {
                 : "campName";
             sortValue[key] = sort === "A-Z Order" ? 1 : -1;
           }
-          result = await campsCollection.find(query).sort(sortValue).toArray();
+          result = await campsCollection
+            .find(query)
+            .sort(sortValue)
+            .skip(10 * page)
+            .limit(10)
+            .toArray();
         }
         res.status(200).json({
           success: true,
           message: "Camps data fetching success",
           data: result,
+          totalData,
         });
       } catch (error) {
         res.status(500).json({ message: "internal sever error" });
