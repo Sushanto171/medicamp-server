@@ -170,7 +170,7 @@ const run = async () => {
         const result = await feedbacksCollection.find({ campID: id }).toArray();
         res.status(200).json({ message: "Feedback by id", data: result });
       } catch (error) {
-        console.log(error);
+        // console.log(error);
         res
           .status(500)
           .json({ message: "internal server error", error: error.message });
