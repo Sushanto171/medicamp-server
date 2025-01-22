@@ -622,8 +622,9 @@ const run = async () => {
     // camps related apis
     app.get("/camps", async (req, res) => {
       try {
-        const { home, sort, search, page } = req.query;
+        const { home, sort, search, page, available = false } = req.query;
         let query = {};
+
         // search
         if (search && search !== "null" && search !== "undefined") {
           query = {
@@ -666,7 +667,7 @@ const run = async () => {
             .find(query)
             .sort(sortValue)
             .skip(10 * page)
-            .limit(10)
+            .limit(available === "true" ? 9 : 10)
             .toArray();
         }
         res.status(200).json({
