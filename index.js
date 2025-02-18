@@ -619,6 +619,31 @@ const run = async () => {
       }
     });
 
+    app.get("/recent-camps", async (req, res) => {
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        const result = await campsCollection
+          .aggregate([
+            {
+              $match: {
+                date: { $lt: today },
+              },
+            },
+            {
+              $sort: { date: -1 },
+            },
+          ])
+          .toArray();
+        res.status(200).json({
+          message: "Fetching success",
+          data: result,
+          success: true,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Internal server error", error });
+      }
+    });
+
     // camps related apis
     app.get("/camps", async (req, res) => {
       try {
@@ -648,7 +673,7 @@ const run = async () => {
         // if home then aggregate
         if (home === "true") {
           result = await campsCollection
-            .aggregate([{ $sort: { participantCount: -1 } }, { $limit: 6 }])
+            .aggregate([{ $sort: { participantCount: -1 } }, { $limit: 8 }])
             .toArray();
         } else {
           // conditionally set sortValue
@@ -667,7 +692,7 @@ const run = async () => {
             .find(query)
             .sort(sortValue)
             .skip(10 * page)
-            .limit(available === "true" ? 9 : 10)
+            .limit(available === "true" ? 12 : 10)
             .toArray();
         }
         res.status(200).json({
