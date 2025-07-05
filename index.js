@@ -10,7 +10,6 @@ const cors = require("cors");
 const port = process.env.PROT || 5000;
 
 const uri = process.env.DB_USER;
-
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -33,7 +32,11 @@ app.use(
 
 const verifyToken = (req, res, next) => {
   try {
-    const data = req.headers?.authorization;
+    const data = req?.headers?.authorization;
+    if (!data) {
+      throw Error("data is invalid");
+    }
+    console.log({ data });
     const [Bearer, token] = data?.split(" ");
     if (!token) {
       res
@@ -53,7 +56,9 @@ const verifyToken = (req, res, next) => {
       next();
     });
   } catch (error) {
-    res.status(500).json({ message: "internal server error", error });
+    res
+      .status(500)
+      .json({ message: error.message | "internal server error", error });
   }
 };
 
@@ -167,7 +172,7 @@ const run = async () => {
     app.get("/feedback/:id", async (req, res) => {
       try {
         const id = req.params.id;
-        const result = await feedbacksCollection.find({ campID: id }).toArray();
+        const result = await feedbacksCollection.findOne({ _id: new ObjectId(id )})
         res.status(200).json({ message: "Feedback by id", data: result });
       } catch (error) {
         // console.log(error);
