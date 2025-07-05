@@ -632,6 +632,9 @@ const run = async () => {
             {
               $sort: { date: -1 },
             },
+            {
+              $limit: 4,
+            },
           ])
           .toArray();
         res.status(200).json({
